@@ -212,7 +212,7 @@ if (args["list-countries"]) {
       ];
 
       const p = new Deno.Command(
-        "ping",
+        "/sbin/ping",
         {
           args,
           stdout: "piped",
