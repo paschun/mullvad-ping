@@ -1,4 +1,5 @@
 import { parseArgs } from "https://deno.land/std@0.208.0/cli/parse_args.ts";
+import { BaseHandler } from "https://deno.land/std@0.208.0/log/handlers.ts";
 import * as log from "https://deno.land/std@0.208.0/log/mod.ts";
 
 type ServerDataJSON = {
@@ -51,13 +52,27 @@ const runTypes = ["all", "ram", "disk"];
 const args = parseArgs(Deno.args);
 
 function setupLogs(): log.Logger {
+  function stderrHandler(this: BaseHandler, logRecord: log.LogRecord) {
+    if (this.level > logRecord.level) return;
+
+    const msg = this.format(logRecord);
+
+    if (logRecord.level >= log.LogLevels.ERROR) console.error(msg)
+    else this.log(msg);
+  }
+
   const pipeFmt = new log.handlers.BaseHandler("INFO", { formatter: "{msg}" })
   pipeFmt.log = console.log
+  pipeFmt.handle = stderrHandler
+
+  const debugFmt = new log.handlers.ConsoleHandler("DEBUG")
+  debugFmt.handle = stderrHandler
+
 
   log.setup({
     handlers: {
       pipeFmt,
-      console: new log.handlers.ConsoleHandler("DEBUG"),
+      debugFmt,
     },
     loggers: {
       pipe: {
@@ -66,7 +81,7 @@ function setupLogs(): log.Logger {
       },
       debug: {
         level: 'DEBUG',
-        handlers: ["console"],
+        handlers: ["debugFmt"],
       },
     }
   })
