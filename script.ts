@@ -1,4 +1,5 @@
 import { parseArgs } from "https://deno.land/std@0.208.0/cli/parse_args.ts";
+import * as log from "https://deno.land/std@0.208.0/log/mod.ts";
 
 type ServerDataJSON = {
   hostname: string;
@@ -48,8 +49,35 @@ const serverTypes = ["openvpn", "bridge", "wireguard", "all"];
 const runTypes = ["all", "ram", "disk"];
 
 const args = parseArgs(Deno.args);
+
+function setupLogs(): log.Logger {
+  const pipeFmt = new log.handlers.BaseHandler("INFO", { formatter: "{msg}" })
+  pipeFmt.log = console.log
+
+  log.setup({
+    handlers: {
+      pipeFmt,
+      console: new log.handlers.ConsoleHandler("DEBUG"),
+    },
+    loggers: {
+      pipe: {
+        level: 'INFO',
+        handlers: ["pipeFmt"],
+      },
+      debug: {
+        level: 'DEBUG',
+        handlers: ["console"],
+      },
+    }
+  })
+  
+  const logger = args.debug ? 'debug' : 'pipe'
+  return log.getLogger(logger);
+}
+const logger = setupLogs()
+
 if (args.help || args.h) {
-  console.log(`Usage: script [OPTION]
+  logger.info(`Usage: script [OPTION]
     --country <code>      the country you want to query (eg. us, gb, de)
     --list-countries      lists the available countries
     --type <type>         the type of server to query (${
@@ -57,11 +85,11 @@ if (args.help || args.h) {
   })
     --count <n>           the number of pings to the server (default 3)`);
   if (Deno.build.os != "windows") {
-    console.log(
+    logger.info(
       `    --interval <i>        the interval between pings in seconds (default/min 0.2)`,
     );
   }
-  console.log(
+  logger.info(
     `    --top <n>             the number of top servers to show, (0=all)
     --port-speed <n>      only show servers with at least n Gigabit port speed
     --provider <name>     only show servers from the given provider
@@ -108,7 +136,7 @@ if (args.owned != null) {
 
 const provider = args.provider;
 
-console.log("Fetching currently available relays...");
+logger.debug("Fetching currently available relays...");
 const response = await fetch(
   `https://api.mullvad.net/www/relays/${serverType}/`,
 );
@@ -121,7 +149,7 @@ function parsePing(output: string, server: ServerDataJSON) {
 
   const values = output.match(regex);
   if (values) {
-    console.log(
+    logger.debug(
       `Pinged ${server.hostname}.mullvad.net, min/avg/max/mdev ${values[0]
       }`,
     );
@@ -137,7 +165,7 @@ function parsePing(output: string, server: ServerDataJSON) {
     };
     return result
   }
-  console.error(`no output match for ${server.hostname} - ${output}`)
+  logger.error(`no output match for ${server.hostname} - ${output}`)
   return null
 }
 
@@ -147,7 +175,7 @@ if (args["list-countries"]) {
     countries.add(`${e.country_code} - ${e.country_name}`);
   });
   countries.forEach((e) => {
-    console.log(e);
+    logger.info(e);
   });
 } else {
   const pings = [];
@@ -176,7 +204,7 @@ if (args["list-countries"]) {
         },
       );
 
-      console.log('sending ping to ', server.ipv4_addr_in)
+      logger.debug(`sending ping to ${server.ipv4_addr_in}`)
       pings.push(sleep().then(_ => p.output()).then((cmdout: Deno.CommandOutput) => {
         const decoder = new TextDecoder()
         const stderr = decoder.decode(cmdout.stderr)
@@ -188,28 +216,31 @@ if (args["list-countries"]) {
   }
   
   const results = (await Promise.all(pings)).filter((r): r is ServerPingData => r !== null)
+  logger.debug('got results')
 
   results.sort((a, b) => {
     return a.avg - b.avg;
   })
 
-  // console.log(results)
+  // logger.debug(results)
 
   const top = topN == 0 ? results : results.slice(0, topN);
+  logger.debug('got top '+topN)
 
   if (top.length > 0) {
-    console.log(`\n\n\nTop ${top.length} results:`);
+    logger.debug('\n\n\n')
+    logger.debug(`Top ${top.length} results:`);
 
     for (const e of top) {
-      console.log(
+      logger.debug(
         ` - ${e.hostname}.mullvad.net (${
           e.avg.toFixed(1)
         }ms) ${e.network_port_speed} Gigabit ${e.type} ${e.city}, ${e.country}`,
       );
     }
-    console.log('')
-    console.log(top[0].hostname)
+    logger.debug('')
+    logger.info(top[0].hostname)
   } else {
-    console.error("No servers found");
+    logger.error("No servers found");
   }
 }
